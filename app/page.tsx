@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 
 // ──────────────────────────────────────────────
-// 기본 코드 (Vercel read-only 환경 fallback)
+// 기본 코드
 // ──────────────────────────────────────────────
 const DEFAULT_CODE = `#[2장]
 #피자메뉴
@@ -41,6 +41,7 @@ print(" 피자 총 가격:", subtotal,"원")
 `;
 
 const LS_KEY = "pizza_editor_code";
+const LS_STUDENT_KEY = "pizza_student_info";
 
 // ──────────────────────────────────────────────
 // 파싱 헬퍼
@@ -59,7 +60,6 @@ function parsePrice(code: string): number {
   return m ? parseInt(m[1], 10) : 3500;
 }
 
-// drink1~drink10 이름 파싱
 function parseDrinkNames(code: string): string[] {
   const names: string[] = [];
   for (let i = 1; i <= 10; i++) {
@@ -69,7 +69,6 @@ function parseDrinkNames(code: string): string[] {
   return names;
 }
 
-// drink_price 또는 price2 파싱
 function parseDrinkPrice(code: string): number {
   const m =
     code.match(/drink_price\s*=\s*(\d+)/) ||
@@ -77,14 +76,12 @@ function parseDrinkPrice(code: string): number {
   return m ? parseInt(m[1], 10) : 2000;
 }
 
-// drink1 변수 존재 여부
 function hasDrink(code: string): boolean {
   return /drink1\s*=/.test(code);
 }
 
 // ──────────────────────────────────────────────
 // 데이터 타입 유효성 검사
-// 버튼 클릭 시에만 호출됨
 // ──────────────────────────────────────────────
 interface ValidationError {
   varName: string;
@@ -94,48 +91,29 @@ interface ValidationError {
 function validateDrinkTypes(code: string): ValidationError[] {
   const errors: ValidationError[] = [];
 
-  // drink1, drink2 검사
   for (const varName of ["drink1", "drink2"]) {
-    // 해당 변수가 아예 없으면 스킵
     const lineMatch = code.match(new RegExp(`^\\s*${varName}\\s*=\\s*(.+)$`, "m"));
     if (!lineMatch) continue;
     const rhs = lineMatch[1].trim();
-
-    // 순수 숫자
     if (/^\d+(\.\d+)?$/.test(rhs)) {
-      errors.push({
-        varName,
-        message: `음료수 이름은 문자열 데이터예요. 따옴표(" 또는 ')로 감싸주세요. (예: ${varName} = "콜라")`,
-      });
+      errors.push({ varName, message: `음료수 이름은 문자열 데이터예요. 따옴표(" 또는 ')로 감싸주세요. (예: ${varName} = "콜라")` });
       continue;
     }
-    // 따옴표 없이 식별자/한글 할당 (문자열이 아닌 경우)
     if (!/^["']/.test(rhs) && /[가-힣a-zA-Z]/.test(rhs)) {
-      errors.push({
-        varName,
-        message: `문자열 데이터는 따옴표가 필요해요. (예: ${varName} = "콜라")`,
-      });
+      errors.push({ varName, message: `문자열 데이터는 따옴표가 필요해요. (예: ${varName} = "콜라")` });
     }
   }
 
-  // drink_price / price2 검사
   for (const varName of ["drink_price", "price2"]) {
     const lineMatch = code.match(new RegExp(`^\\s*${varName}\\s*=\\s*(.+)$`, "m"));
     if (!lineMatch) continue;
     const rhs = lineMatch[1].trim();
-
     if (/^["']/.test(rhs)) {
-      errors.push({
-        varName,
-        message: `가격은 정수(숫자) 데이터예요. 따옴표를 제거해주세요. (예: ${varName} = 2000)`,
-      });
+      errors.push({ varName, message: `가격은 정수(숫자) 데이터예요. 따옴표를 제거해주세요. (예: ${varName} = 2000)` });
       continue;
     }
     if (/[가-힣a-zA-Z]/.test(rhs) && !/^["']/.test(rhs)) {
-      errors.push({
-        varName,
-        message: `가격은 정수(숫자) 데이터예요. 숫자만 입력해주세요.`,
-      });
+      errors.push({ varName, message: `가격은 정수(숫자) 데이터예요. 숫자만 입력해주세요.` });
     }
   }
 
@@ -147,6 +125,79 @@ declare global {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     loadPyodide: (config?: any) => Promise<any>;
   }
+}
+
+// ──────────────────────────────────────────────
+// 학생 정보 타입
+// ──────────────────────────────────────────────
+interface StudentInfo {
+  school: string;
+  department: string;
+  student_id: string;
+  name: string;
+}
+
+// ──────────────────────────────────────────────
+// 학생 정보 입력 모달
+// ──────────────────────────────────────────────
+function StudentModal({
+  initial,
+  onSave,
+  onCancel,
+  isSaving,
+}: {
+  initial: StudentInfo;
+  onSave: (info: StudentInfo) => void;
+  onCancel: () => void;
+  isSaving: boolean;
+}) {
+  const [info, setInfo] = useState<StudentInfo>(initial);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInfo((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!info.name.trim()) { alert("이름을 입력해주세요."); return; }
+    onSave(info);
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-box">
+        <div className="modal-header">
+          <span className="modal-icon">💾</span>
+          <h2 className="modal-title">코드 저장 — 학생 정보 입력</h2>
+        </div>
+        <p className="modal-desc">정보를 입력하면 DB에 코드가 저장됩니다.<br />다음에는 자동으로 불러올 수 있어요.</p>
+        <form onSubmit={handleSubmit} className="modal-form">
+          <div className="modal-field">
+            <label className="modal-label">학교명</label>
+            <input className="modal-input" name="school" value={info.school} onChange={handleChange} placeholder="예: 한국중학교" />
+          </div>
+          <div className="modal-field">
+            <label className="modal-label">학과 / 학년반</label>
+            <input className="modal-input" name="department" value={info.department} onChange={handleChange} placeholder="예: 2학년 3반" />
+          </div>
+          <div className="modal-field">
+            <label className="modal-label">학번</label>
+            <input className="modal-input" name="student_id" value={info.student_id} onChange={handleChange} placeholder="예: 2024030" />
+          </div>
+          <div className="modal-field">
+            <label className="modal-label">이름 <span className="modal-required">*필수</span></label>
+            <input className="modal-input" name="name" value={info.name} onChange={handleChange} placeholder="예: 홍길동" required />
+          </div>
+          <div className="modal-actions">
+            <button type="button" className="modal-btn-cancel" onClick={onCancel}>취소</button>
+            <button type="submit" className="modal-btn-save" disabled={isSaving}>
+              {isSaving ? "저장 중..." : "저장하기"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 }
 
 // ──────────────────────────────────────────────
@@ -177,6 +228,13 @@ export default function PizzaPage() {
   // 유효성 검사 오류
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
 
+  // 모달
+  const [showModal, setShowModal] = useState(false);
+  const [studentInfo, setStudentInfo] = useState<StudentInfo>({ school: "", department: "", student_id: "", name: "" });
+
+  // 저장 성공 토스트
+  const [saveToast, setSaveToast] = useState<"" | "success" | "error">("");
+
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const lineNumRef = useRef<HTMLDivElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
@@ -200,18 +258,18 @@ export default function PizzaPage() {
     setDrinkExists(dExists);
     setSelectedDrink((prev) => (dNames.includes(prev) ? prev : dNames[0] ?? ""));
 
-    // 코드 수정 시 오류 초기화
     setValidationErrors([]);
   }, [code]);
 
-  // ── 초기 코드 로드 (localStorage → API → fallback)
+  // ── 초기 로드: localStorage 학생 정보 복원
   useEffect(() => {
     const saved = localStorage.getItem(LS_KEY);
-    if (saved) { setCode(saved); return; }
-    fetch("/api/pizza-code")
-      .then((r) => r.json())
-      .then((d) => { if (d.code) setCode(d.code); })
-      .catch(() => {});
+    if (saved) setCode(saved);
+
+    const savedStudent = localStorage.getItem(LS_STUDENT_KEY);
+    if (savedStudent) {
+      try { setStudentInfo(JSON.parse(savedStudent)); } catch { /* ignore */ }
+    }
   }, []);
 
   // ── Pyodide 로드
@@ -221,9 +279,7 @@ export default function PizzaPage() {
     script.src = "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/pyodide.js";
     script.onload = async () => {
       try {
-        const py = await window.loadPyodide({
-          indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/",
-        });
+        const py = await window.loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.2/full/" });
         pyodideRef.current = py;
         setPyStatus("ready");
       } catch { setPyStatus("error"); }
@@ -257,8 +313,7 @@ export default function PizzaPage() {
 
   // ── 출력 스크롤
   useEffect(() => {
-    if (outputRef.current)
-      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
   }, [output]);
 
   // ── 오류 시 스크롤
@@ -267,6 +322,59 @@ export default function PizzaPage() {
       errorBoxRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [validationErrors]);
+
+  // ── DB 저장 실행
+  const saveToSupabase = useCallback(async (info: StudentInfo) => {
+    setIsSaving(true);
+    localStorage.setItem(LS_KEY, code);
+    localStorage.setItem(LS_STUDENT_KEY, JSON.stringify(info));
+
+    try {
+      const res = await fetch("/api/pizza-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...info,
+          code,
+          vercel_url: window.location.hostname,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setSaveToast("success");
+      } else {
+        setSaveToast("error");
+      }
+    } catch {
+      setSaveToast("error");
+    } finally {
+      setIsSaving(false);
+      setShowModal(false);
+      setTimeout(() => setSaveToast(""), 3000);
+    }
+  }, [code]);
+
+  // ── 내 코드 불러오기
+  const loadMyCode = useCallback(async () => {
+    if (!studentInfo.name.trim()) { alert("먼저 정보를 입력하여 저장한 후 불러올 수 있어요."); return; }
+    try {
+      const params = new URLSearchParams({
+        school: studentInfo.school,
+        student_id: studentInfo.student_id,
+        name: studentInfo.name,
+      });
+      const res = await fetch(`/api/pizza-code?${params}`);
+      const data = await res.json();
+      if (data.code) {
+        setCode(data.code);
+        alert(`✅ 코드를 불러왔어요! (저장 시각: ${data.submitted_at ? new Date(data.submitted_at).toLocaleString("ko-KR") : "알 수 없음"})`);
+      } else {
+        alert("저장된 코드가 없어요. 먼저 저장을 해주세요.");
+      }
+    } catch {
+      alert("불러오기 실패. 네트워크를 확인해주세요.");
+    }
+  }, [studentInfo]);
 
   // ── pizza.py 다운로드
   const handleDownload = useCallback(() => {
@@ -279,37 +387,23 @@ export default function PizzaPage() {
     URL.revokeObjectURL(url);
   }, [code]);
 
-  // ── 코드 저장 + Pyodide 실행
-  const handleRunOrder = useCallback(async () => {
-    if (pyStatus !== "ready" || isRunning) return;
-
-    // [1] 유효성 검사 (버튼 클릭 시만)
+  // ── 코드 저장 버튼 클릭 → 모달 열기
+  const handleSaveClick = useCallback(() => {
     const errors = validateDrinkTypes(code);
-    if (errors.length > 0) {
-      setValidationErrors(errors);
-      return;
-    }
+    if (errors.length > 0) { setValidationErrors(errors); return; }
     setValidationErrors([]);
+    setShowModal(true);
+  }, [code]);
 
+  // ── 모달 저장 완료 → Pyodide 실행
+  const handleModalSave = useCallback(async (info: StudentInfo) => {
+    setStudentInfo(info);
+    await saveToSupabase(info);
+    // Pyodide 실행
+    if (pyStatus !== "ready" || isRunning) return;
     setIsRunning(true);
-    setIsSaving(true);
-
-    // localStorage 저장
-    localStorage.setItem(LS_KEY, code);
-
-    // 서버 저장 (실패해도 무시 — Vercel read-only 대비)
-    try {
-      await fetch("/api/pizza-code", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-    } catch { /* 무시 */ } finally { setIsSaving(false); }
-
-    // [2] Pyodide 실행
     try {
       const py = pyodideRef.current;
-      // input() 4단계 자동 주입
       const inputs = [
         selectedPizza,
         String(pizzaCount),
@@ -317,13 +411,11 @@ export default function PizzaPage() {
         drinkExists ? String(drinkCount) : "0",
       ];
       let inputIdx = 0;
-
       py.globals.set("__input_override__", (_prompt: string) => {
         const val = inputs[inputIdx] ?? "";
         inputIdx++;
         return val;
       });
-
       const wrappedCode = `
 import sys
 import io
@@ -348,7 +440,7 @@ __captured__ = _stdout.getvalue()
     } finally {
       setIsRunning(false);
     }
-  }, [code, drinkCount, drinkExists, isRunning, pizzaCount, pyStatus, selectedDrink, selectedPizza]);
+  }, [pyStatus, isRunning, code, selectedPizza, pizzaCount, drinkExists, selectedDrink, drinkCount, saveToSupabase]);
 
   // ── 소계 계산
   const pizzaSubtotal = price * pizzaCount;
@@ -360,6 +452,23 @@ __captured__ = _stdout.getvalue()
   // ──────────────────────────────────────────────
   return (
     <div className="pizza-root">
+      {/* 모달 */}
+      {showModal && (
+        <StudentModal
+          initial={studentInfo}
+          onSave={handleModalSave}
+          onCancel={() => setShowModal(false)}
+          isSaving={isSaving}
+        />
+      )}
+
+      {/* 저장 토스트 */}
+      {saveToast && (
+        <div className={`save-toast save-toast--${saveToast}`}>
+          {saveToast === "success" ? "✅ DB에 저장 완료!" : "❌ 저장 실패. 다시 시도해주세요."}
+        </div>
+      )}
+
       {/* ── 헤더 ── */}
       <header className="header">
         <div className="header-left">
@@ -373,6 +482,7 @@ __captured__ = _stdout.getvalue()
           {pyStatus === "ready" && <span className="badge badge-ready">🟢 Python 준비 완료</span>}
           {pyStatus === "loading" && <span className="badge badge-loading"><span className="spin">⏳</span> Pyodide 로딩 중...</span>}
           {pyStatus === "error" && <span className="badge badge-error">🔴 Python 로드 실패</span>}
+          <a href="/admin" className="admin-link" target="_blank">📊 선생님 대시보드</a>
         </div>
       </header>
 
@@ -418,11 +528,10 @@ __captured__ = _stdout.getvalue()
             </div>
           </div>
 
-          {/* 🥤 음료수 섹션 — drink1이 있으면 주문창, 없으면 과제 안내 박스 */}
+          {/* 🥤 음료수 섹션 */}
           {drinkExists ? (
             <>
               <div className="section-title section-title--drink">🥤 음료수</div>
-
               <div className="card card--drink">
                 <label className="field-label">음료수 선택</label>
                 <div className="select-wrapper">
@@ -433,7 +542,6 @@ __captured__ = _stdout.getvalue()
                   <span className="select-arrow">▾</span>
                 </div>
               </div>
-
               <div className="card card--drink">
                 <label className="field-label">수량</label>
                 <div className="qty-row">
@@ -443,7 +551,6 @@ __captured__ = _stdout.getvalue()
                   <button id="drink-qty-plus" className="qty-btn qty-btn--drink" onClick={() => setDrinkCount((c) => c + 1)}>+</button>
                 </div>
               </div>
-
               <div className="summary-card summary-card--drink">
                 <div className="summary-row"><span className="summary-label">단가</span><span className="summary-value">{drinkPrice.toLocaleString()}원</span></div>
                 <div className="summary-row"><span className="summary-label">수량</span><span className="summary-value">{drinkCount}개</span></div>
@@ -455,10 +562,8 @@ __captured__ = _stdout.getvalue()
               </div>
             </>
           ) : (
-            /* 과제 안내 박스 또는 유효성 오류 박스 */
             <div ref={errorBoxRef}>
               {validationErrors.length > 0 ? (
-                /* 유효성 오류 표시 */
                 <div className="error-box">
                   <div className="error-box__title">⚠️ 데이터 타입 오류</div>
                   {validationErrors.map((err, i) => (
@@ -470,7 +575,6 @@ __captured__ = _stdout.getvalue()
                   <p className="error-box__hint">코드를 수정하면 이 메시지가 사라집니다.</p>
                 </div>
               ) : (
-                /* 과제 안내 박스 */
                 <div className="assignment-box">
                   <div className="assignment-box__header">
                     <span className="assignment-box__icon">📝</span>
@@ -499,7 +603,6 @@ __captured__ = _stdout.getvalue()
             </div>
           )}
 
-          {/* 유효성 오류가 있고 drink가 이미 존재하는 경우 (drink 섹션 아래에 표시) */}
           {drinkExists && validationErrors.length > 0 && (
             <div ref={errorBoxRef} className="error-box">
               <div className="error-box__title">⚠️ 데이터 타입 오류</div>
@@ -553,14 +656,21 @@ __captured__ = _stdout.getvalue()
 
           {/* 버튼 그룹 */}
           <div className="btn-group">
-            <button id="run-btn" className="run-btn" disabled={pyStatus !== "ready" || isRunning} onClick={handleRunOrder}>
+            <button id="run-btn" className="run-btn"
+              disabled={pyStatus !== "ready" || isRunning}
+              onClick={handleSaveClick}>
               {isRunning ? <><span className="spin">⚙️</span> 파이썬 실행 중...</>
-                : isSaving ? "💾 저장 중..."
+                : isSaving ? "💾 DB 저장 중..."
                 : "▶ 코드 저장 및 주문하기 (파이썬 실행)"}
             </button>
-            <button id="download-btn" className="download-btn" onClick={handleDownload} title="현재 코드를 pizza.py로 내 컴퓨터에 저장합니다">
-              📥 pizza.py 저장
-            </button>
+            <div className="btn-row">
+              <button id="load-btn" className="load-btn" onClick={loadMyCode}>
+                ☁️ 내 코드 불러오기
+              </button>
+              <button id="download-btn" className="download-btn" onClick={handleDownload} title="현재 코드를 pizza.py로 내 컴퓨터에 저장합니다">
+                📥 pizza.py 저장
+              </button>
+            </div>
           </div>
         </section>
 
